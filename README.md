@@ -100,6 +100,14 @@ All settings are environment variables; see [.env.example](.env.example). On Clo
 
 Costs are estimated from the list prices in [gateway/pricing.py](gateway/pricing.py), even on the free tier, so the budget cap and the cost report show what the traffic would cost on a paid key. Check the prices against Google's pricing page before relying on them.
 
+## Deploy (Cloud Run)
+
+1. In Cloud Shell, in the gateway's project, run [scripts/gcp-setup.sh](scripts/gcp-setup.sh). It enables the APIs, creates the image repository and two service accounts (runtime and deployer), sets up Workload Identity Federation for this repository only, asks for each secret in a hidden prompt and stores it in Secret Manager, generates the client keys and the hash salt, and applies the database schema. It is safe to run again.
+2. Put the three identifiers it prints into the `env` block of [deploy.yml](.github/workflows/deploy.yml).
+3. Every merge to `main` that touches the app then builds the image, deploys it to Cloud Run in `asia-southeast1` (0 to 2 instances) and checks `/healthz`.
+
+The repository holds no Google credentials: GitHub Actions signs in with a short-lived OIDC token that only this repository can use.
+
 ## Layout
 
 ```
@@ -114,6 +122,7 @@ gateway/
   migrate.py        applies db/migrations in order
   telemetry.py      OpenTelemetry setup and the Langfuse exporter
 evals/guardrails/   labelled sets, runner, baseline
+scripts/            gcp-setup.sh: one-time Google Cloud setup
 db/migrations/     usage_log table and usage_daily view
 ```
 
@@ -121,5 +130,5 @@ db/migrations/     usage_log table and usage_daily view
 
 1. ~~Core: proxy, limits, cost log, traces~~
 2. ~~Guardrails: Thai and English PII, prompt injection, output checks~~
-3. Deploy to Cloud Run with GitHub Actions, route thai-rag-agents through it, and serve the portfolio's "ask it yourself" demo.
+3. Deploy to Cloud Run with GitHub Actions (setup script and workflow done), route thai-rag-agents through it, and serve the portfolio's "ask it yourself" demo.
 4. Semantic cache (pgvector on the same Postgres), a held-out guardrail set and a model-based injection classifier, and the portfolio chatbot.
