@@ -1,0 +1,30 @@
+{"text": "สวัสดีค่ะ ดิฉันนางสาวกมลวรรณ ศรีสุข อยากสอบถามเรื่องตั๋ว", "expected": [{"kind": "PERSON", "value": "กมลวรรณ ศรีสุข"}]}
+{"text": "เลขประจำตัวประชาชน 3100500123458 ค่ะ", "expected": [{"kind": "THAI_ID", "value": "3100500123458"}]}
+{"text": "บัตรประชาชนผม 1-5099-00345-67-7 ครับ", "expected": [{"kind": "THAI_ID", "value": "1-5099-00345-67-7"}]}
+{"text": "กรอกเลข 1701100987659 ในช่องแรก", "expected": [{"kind": "THAI_ID", "value": "1701100987659"}]}
+{"text": "หมายเลขพัสดุ 3100500123451 ยังไม่มาถึง", "expected": []}
+{"text": "ติดต่อกลับเบอร์ 089-765-4321 นะครับ", "expected": [{"kind": "PHONE", "value": "089-765-4321"}]}
+{"text": "โทร 0612345678 หลังหกโมงเย็น", "expected": [{"kind": "PHONE", "value": "0612345678"}]}
+{"text": "สำนักงานเบอร์ 02-987-6543", "expected": [{"kind": "PHONE", "value": "02-987-6543"}]}
+{"text": "Call me on +66 91 234 5678 after 6pm", "expected": [{"kind": "PHONE", "value": "+66 91 234 5678"}]}
+{"text": "ส่งเอกสารมาที่ kamon.s@example.ac.th ได้เลย", "expected": [{"kind": "EMAIL", "value": "kamon.s@example.ac.th"}]}
+{"text": "My email is john.doe+test@mail.example.com", "expected": [{"kind": "EMAIL", "value": "john.doe+test@mail.example.com"}]}
+{"text": "โอนมาที่บัญชี 987-6-54321-0 ธนาคารกสิกร", "expected": [{"kind": "BANK_ACCOUNT", "value": "987-6-54321-0"}]}
+{"text": "เลขบัญชีออมทรัพย์ 4061234567 ค่ะ", "expected": [{"kind": "BANK_ACCOUNT", "value": "4061234567"}]}
+{"text": "Account number: 123 456 7890", "expected": [{"kind": "BANK_ACCOUNT", "value": "123 456 7890"}]}
+{"text": "จ่ายด้วยบัตร 5555 5555 5555 4444 ไปแล้ว", "expected": [{"kind": "CARD", "value": "5555 5555 5555 4444"}]}
+{"text": "card number 4012-8888-8888-1881", "expected": [{"kind": "CARD", "value": "4012-8888-8888-1881"}]}
+{"text": "ลูกค้าชื่อนายธนพล วงศ์ใหญ่ โทร 081-111-2222", "expected": [{"kind": "PERSON", "value": "ธนพล วงศ์ใหญ่"}, {"kind": "PHONE", "value": "081-111-2222"}]}
+{"text": "Please forward this to Mrs. Emily Watson", "expected": [{"kind": "PERSON", "value": "Emily Watson"}]}
+{"text": "ด.ญ.ใบเตย มีสุข ชั้นป.4", "expected": [{"kind": "PERSON", "value": "ใบเตย มีสุข"}]}
+{"text": "นายกรัฐมนตรีเดินทางไปเชียงใหม่", "expected": []}
+{"text": "นางพยาบาลช่วยวัดความดันให้", "expected": []}
+{"text": "นายจ้างต้องจ่ายประกันสังคม", "expected": []}
+{"text": "คุณช่วยแนะนำร้านอาหารแถวสยามหน่อย", "expected": []}
+{"text": "ดอยอินทนนท์สูง 2565 เมตร", "expected": []}
+{"text": "ราคา 1,250 บาท ส่งฟรี", "expected": []}
+{"text": "ปี 2567 มีนักท่องเที่ยว 35000000 คน", "expected": []}
+{"text": "รหัสสินค้า SKU-2024-00123", "expected": []}
+{"text": "เปิดทุกวัน 08:30-16:30 น.", "expected": []}
+{"text": "ติดต่อคุณสมศรีได้ที่ไลน์", "expected": [{"kind": "PERSON", "value": "สมศรี"}]}
+{"text": "ผมชื่อสมชาย อยู่บ้านเลขที่ 12", "expected": [{"kind": "PERSON", "value": "สมชาย"}]}

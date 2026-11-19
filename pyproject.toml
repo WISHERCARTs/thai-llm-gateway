@@ -1,0 +1,22 @@
+[project]
+name = "thai-llm-gateway"
+version = "0.1.0"
+description = "An OpenAI-compatible LLM gateway with Thai-aware guardrails, rate limits, cost tracking and OpenTelemetry traces"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# Detection patterns read better on one line each.
+"gateway/guardrails/*.py" = ["E501"]
