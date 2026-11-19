@@ -1,0 +1,9 @@
+.venv
+.git
+.github
+tests
+evals
+supabase
+*.md
+.env
+__pycache__
