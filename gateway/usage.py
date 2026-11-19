@@ -1,13 +1,13 @@
-"""One row per request in Supabase (table usage_log), for cost reports in SQL.
+"""One row per request in Postgres (table usage_log), for cost reports in SQL.
 
-Writes happen after the response is sent and never fail a request; a failed write is logged.
+Any Postgres works (Neon in production, a local one for tests). Writes happen after the
+response is sent and never fail a request; a failed write is logged.
 """
 
+import asyncio
 import logging
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from typing import Protocol
-
-import httpx
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +30,13 @@ class UsageRecord:
     cache_hit: bool = False
 
 
+COLUMNS = [f.name for f in fields(UsageRecord)]
+INSERT = (
+    f"insert into public.usage_log ({', '.join(COLUMNS)}) "
+    f"values ({', '.join(f'${i}' for i in range(1, len(COLUMNS) + 1))})"
+)
+
+
 class UsageSink(Protocol):
     async def write(self, record: UsageRecord) -> None: ...
 
@@ -42,18 +49,33 @@ class MemorySink:
         self.records.append(record)
 
 
-class SupabaseSink:
-    def __init__(self, url: str, service_key: str, client: httpx.AsyncClient | None = None):
-        self._url = url.rstrip("/") + "/rest/v1/usage_log"
-        self._headers = {"apikey": service_key, "Authorization": f"Bearer {service_key}", "Prefer": "return=minimal"}
-        self._client = client or httpx.AsyncClient(timeout=5.0)
+class PostgresSink:
+    """asyncpg pool, opened on first write so the app starts even if the database is asleep."""
+
+    def __init__(self, dsn: str):
+        self._dsn = dsn
+        self._pool = None
+        self._lock = asyncio.Lock()
+
+    async def _get_pool(self):
+        if self._pool is None:
+            async with self._lock:
+                if self._pool is None:
+                    import asyncpg
+
+                    # statement_cache_size=0: Neon's pooled endpoint (PgBouncer) does not keep prepared statements.
+                    self._pool = await asyncpg.create_pool(
+                        self._dsn, min_size=0, max_size=3, statement_cache_size=0, command_timeout=10
+                    )
+        return self._pool
 
     async def write(self, record: UsageRecord) -> None:
         try:
-            resp = await self._client.post(self._url, json=asdict(record), headers=self._headers)
-            resp.raise_for_status()
-        except httpx.HTTPError as exc:
+            pool = await self._get_pool()
+            await pool.execute(INSERT, *asdict(record).values())
+        except Exception as exc:
             log.warning("usage_log write failed for %s: %s", record.request_id, exc)
 
     async def aclose(self) -> None:
-        await self._client.aclose()
+        if self._pool is not None:
+            await self._pool.close()

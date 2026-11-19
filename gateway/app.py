@@ -18,7 +18,7 @@ from gateway.pipeline import Context, Pipeline, hash_user
 from gateway.providers import Provider, build_providers
 from gateway.state import CounterStore, MemoryStore, UpstashStore
 from gateway.telemetry import setup_tracing, tracer
-from gateway.usage import MemorySink, SupabaseSink, UsageRecord, UsageSink
+from gateway.usage import MemorySink, PostgresSink, UsageRecord, UsageSink
 
 log = logging.getLogger("gateway")
 
@@ -51,8 +51,8 @@ def create_app(
         url = settings.upstash_redis_rest_url
         store = UpstashStore(url, token) if url else MemoryStore()
     if sink is None:
-        key = settings.supabase_service_role_key.get_secret_value()
-        sink = SupabaseSink(settings.supabase_url, key) if settings.supabase_url and key else MemorySink()
+        dsn = settings.database_url.get_secret_value()
+        sink = PostgresSink(dsn) if dsn else MemorySink()
     providers = providers if providers is not None else build_providers(settings)
     tracer_provider = setup_tracing(settings, span_exporter, batch=span_exporter is None)
     limiter = Limiter(

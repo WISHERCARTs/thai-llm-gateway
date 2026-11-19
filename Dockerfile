@@ -11,6 +11,7 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY gateway ./gateway
+COPY db ./db
 # Warm PyThaiNLP's dictionary and stop words at build time so the first request is not slow.
 RUN python -c "from gateway.guardrails.pii import find_pii; find_pii('นายสมชาย ใจดี')"
 

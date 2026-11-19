@@ -2,7 +2,7 @@
 
 An OpenAI-compatible gateway that sits between apps and the model providers (Gemini, Ollama). Every request goes through rate limits, a daily budget, Thai-aware PII redaction, a prompt-injection check and output checks, and leaves a trace and a cost record behind. [thai-rag-agents](https://github.com/WISHERCARTs/thai-rag-agents) and the portfolio chatbot will call their models through it.
 
-> **Status (19 November 2026):** steps 1 and 2 of 4 are done: the proxy, limits, cost log, traces and guardrails. They are covered by 70 tests with fake providers (no API key needed). It has not been deployed or called with a real Gemini key yet; that is step 3. The guardrail numbers below come from a hand-written set, read [what they mean](#guardrail-evaluation) before quoting them.
+> **Status (19 November 2026):** steps 1 and 2 of 4 are done: the proxy, limits, cost log, traces and guardrails. They are covered by 71 tests with fake providers (no API key needed) and a real Postgres in CI. It has not been deployed or called with a real Gemini key yet; that is step 3. The guardrail numbers below come from a hand-written set, read [what they mean](#guardrail-evaluation) before quoting them.
 
 ## What happens to a request
 
@@ -16,7 +16,7 @@ flowchart LR
     O --> R[Restore caller's PII<br/>into the answer]
     R --> A
     L -. counters .-> U[(Upstash Redis)]
-    O -. one row per request .-> S[(Supabase usage_log)]
+    O -. one row per request .-> S[(Postgres usage_log<br/>Neon)]
     G & P & O -. OpenTelemetry spans .-> F[Langfuse]
 ```
 
@@ -40,7 +40,7 @@ Response headers: `x-request-id`, `x-gateway-cost-usd`, `x-gateway-pii-redacted`
 | Thai names only after a title (นาย, นางสาว, ด.ช., ...) | Thai has no capital letters or spaces between words. PyThaiNLP's tokenizer finds where the name ends, and titles inside words (นายกรัฐมนตรี, นางพยาบาล) are skipped. "คุณ" is left out because it also means "you". |
 | Check the answer for system-prompt leaks | An injection the input rules missed usually shows up as the model repeating its instructions. |
 | No streaming yet | The output checks need the whole answer. Streaming with a held-back buffer is possible later. |
-| Upstash Redis for counters, Supabase for the cost log | Cloud Run instances come and go, so counters cannot live in memory. Redis is the usual tool for counters; Postgres makes the cost report one SQL query (`usage_daily` view). |
+| Upstash Redis for counters, Postgres (Neon) for the cost log | Cloud Run instances come and go, so counters cannot live in memory. Redis is the usual tool for counters; Postgres makes the cost report one SQL query (`usage_daily` view). Neon's free plan wakes on the first query instead of pausing the project, and the code only needs a `DATABASE_URL`, so any Postgres works. |
 | Spans follow the OpenTelemetry GenAI conventions | The code depends only on OpenTelemetry; Langfuse is one OTLP endpoint and can be swapped by changing config. Only redacted text is put on spans. |
 
 ## Guardrail evaluation
@@ -84,19 +84,19 @@ client = OpenAI(base_url="http://localhost:8080/v1", api_key="change-me")
 client.chat.completions.create(model="gemini-2.5-flash", messages=[{"role": "user", "content": "สวัสดี"}])
 ```
 
-Models: the Gemini names in `GEMINI_MODELS` (default `gemini-2.5-flash`, `gemini-2.5-flash-lite`) and any `ollama/<model>`. With empty Upstash and Supabase settings the gateway uses in-memory stores, which is fine for one local process. `docker compose up --build` runs it with Ollama next to it.
+Models: the Gemini names in `GEMINI_MODELS` (default `gemini-2.5-flash`, `gemini-2.5-flash-lite`) and any `ollama/<model>`. With empty Upstash and `DATABASE_URL` settings the gateway uses in-memory stores, which is fine for one local process. `docker compose up --build` runs it with Ollama next to it.
 
 Tests and checks (no network, no keys):
 
 ```bash
-pytest -q
+pytest -q    # TEST_DATABASE_URL=postgresql://... also runs the Postgres test
 ruff check . && ruff format --check .
 python -m evals.guardrails.run --check
 ```
 
 ## Configuration
 
-All settings are environment variables; see [.env.example](.env.example). On Cloud Run the secrets (`GATEWAY_CLIENT_KEYS`, `GEMINI_API_KEY`, `USER_HASH_SALT`, `UPSTASH_REDIS_REST_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY`, `LANGFUSE_SECRET_KEY`) come from Secret Manager. The `usage_log` table is in [supabase/migrations](supabase/migrations).
+All settings are environment variables; see [.env.example](.env.example). On Cloud Run the secrets (`GATEWAY_CLIENT_KEYS`, `GEMINI_API_KEY`, `USER_HASH_SALT`, `UPSTASH_REDIS_REST_TOKEN`, `DATABASE_URL`, `LANGFUSE_SECRET_KEY`) come from Secret Manager. The `usage_log` table is in [db/migrations](db/migrations); apply it with `DATABASE_URL=... python -m gateway.migrate`.
 
 Costs are estimated from the list prices in [gateway/pricing.py](gateway/pricing.py), even on the free tier, so the budget cap and the cost report show what the traffic would cost on a paid key. Check the prices against Google's pricing page before relying on them.
 
@@ -110,10 +110,11 @@ gateway/
   limits.py         rate limits and the daily budget
   state.py          counter stores: Upstash Redis (REST) and in-memory
   providers.py      OpenAI-compatible upstreams with retries, model routing
-  usage.py          usage records to Supabase
+  usage.py          usage records to Postgres
+  migrate.py        applies db/migrations in order
   telemetry.py      OpenTelemetry setup and the Langfuse exporter
 evals/guardrails/   labelled sets, runner, baseline
-supabase/           usage_log table and usage_daily view
+db/migrations/     usage_log table and usage_daily view
 ```
 
 ## Roadmap
@@ -121,4 +122,4 @@ supabase/           usage_log table and usage_daily view
 1. ~~Core: proxy, limits, cost log, traces~~
 2. ~~Guardrails: Thai and English PII, prompt injection, output checks~~
 3. Deploy to Cloud Run with GitHub Actions, route thai-rag-agents through it, and serve the portfolio's "ask it yourself" demo.
-4. Semantic cache (pgvector), a held-out guardrail set and a model-based injection classifier, and the portfolio chatbot.
+4. Semantic cache (pgvector on the same Postgres), a held-out guardrail set and a model-based injection classifier, and the portfolio chatbot.

@@ -1,4 +1,4 @@
--- One row per gateway request. Written by the gateway with the service role key; no public access.
+-- One row per gateway request, written by the gateway. Plain Postgres: runs on Neon, Supabase or local.
 create table if not exists public.usage_log (
   id bigint generated always as identity primary key,
   created_at timestamptz not null default now(),
@@ -21,12 +21,8 @@ create table if not exists public.usage_log (
 create index if not exists usage_log_created_at_idx on public.usage_log (created_at desc);
 create index if not exists usage_log_client_idx on public.usage_log (client, created_at desc);
 
-alter table public.usage_log enable row level security;
--- No policies: anon and authenticated roles cannot read or write. The service role bypasses RLS.
-
 -- Daily cost per client and model, for the README report and a dashboard.
-create or replace view public.usage_daily
-with (security_invoker = true) as
+create or replace view public.usage_daily as
 select date_trunc('day', created_at) as day,
        client,
        model,

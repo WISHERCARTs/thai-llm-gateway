@@ -6,7 +6,7 @@ import pytest
 from gateway.errors import GatewayError
 from gateway.providers import OpenAICompatProvider
 from gateway.state import UpstashStore
-from gateway.usage import SupabaseSink, UsageRecord
+from gateway.usage import PostgresSink, UsageRecord
 
 
 def client(handler):
@@ -74,9 +74,9 @@ async def test_upstash_pipeline():
     assert b'"SET","k","0","EX","60","NX"' in seen[0].content
 
 
-async def test_supabase_sink_swallows_errors():
-    sink = SupabaseSink("https://sb.example", "svc", client=client(lambda r: httpx.Response(500)))
-    await sink.write(UsageRecord("r", "c", None, "gemini", "m", 200))  # no exception
+async def test_postgres_sink_swallows_errors():
+    sink = PostgresSink("postgresql://nobody@127.0.0.1:1/none")
+    await sink.write(UsageRecord("r", "c", None, "gemini", "m", 200))  # logged, not raised
 
 
 async def _no_sleep(_):

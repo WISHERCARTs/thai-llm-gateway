@@ -33,8 +33,8 @@ class Settings(BaseSettings):
 
     upstash_redis_rest_url: str = ""
     upstash_redis_rest_token: SecretStr = SecretStr("")
-    supabase_url: str = ""
-    supabase_service_role_key: SecretStr = SecretStr("")
+    # Postgres for the usage log (Neon in production). Empty: keep records in memory.
+    database_url: SecretStr = SecretStr("")
 
     langfuse_host: str = "https://cloud.langfuse.com"
     langfuse_public_key: str = ""
