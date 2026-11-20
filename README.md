@@ -132,3 +132,7 @@ db/migrations/     usage_log table and usage_daily view
 2. ~~Guardrails: Thai and English PII, prompt injection, output checks~~
 3. Deploy to Cloud Run with GitHub Actions (setup script and workflow done), route thai-rag-agents through it, and serve the portfolio's "ask it yourself" demo.
 4. Semantic cache (pgvector on the same Postgres), a held-out guardrail set and a model-based injection classifier, and the portfolio chatbot.
+
+## License
+
+[MIT](LICENSE)
