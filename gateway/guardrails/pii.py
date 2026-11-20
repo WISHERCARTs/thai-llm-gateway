@@ -103,13 +103,32 @@ def _surname_end(text: str, start: int) -> int:
 
 
 def _is_title_word(text: str, start: int, title: str) -> bool:
-    """True when the title stands as its own word: "นาย" in "นายสมชาย", not in "นายกรัฐมนตรี"."""
+    """True when the title stands as its own word: "นาย" in "นายสมชาย", not in "นายกรัฐมนตรี",
+    "มิถุนายน" (June), "เจ้านาย" or "ขุนนาง".
+
+    Thai has no spaces between words, so the text around the title is tokenized and the title must
+    be a whole token that starts exactly where it was found.
+    """
     from pythainlp.tokenize import word_tokenize
 
     if "." in title:
         return True
-    toks = word_tokenize(text[start : start + 40], engine="newmm", keep_whitespace=False)
-    return bool(toks) and toks[0] == title
+    left = max(0, start - 30)
+    pos = left
+    for tok in word_tokenize(text[left : start + 40], engine="newmm", keep_whitespace=True):
+        if pos == start:
+            return tok == title
+        if pos > start:
+            return False
+        pos += len(tok)
+    return False
+
+
+def _first_word(text: str, start: int) -> str:
+    from pythainlp.tokenize import word_tokenize
+
+    toks = word_tokenize(text[start : start + 30], engine="newmm", keep_whitespace=False)
+    return toks[0] if toks else ""
 
 
 def _thai_names(text: str) -> list[Finding]:
@@ -119,8 +138,8 @@ def _thai_names(text: str) -> list[Finding]:
         if not _is_title_word(text, m.start(), m.group()):
             continue
         first_end = _thai_word_run(text, m.end())
-        if first_end == m.end():
-            continue
+        if first_end == m.end() or _first_word(text, m.end()) in _stopwords():
+            continue  # "นายบ้าน" (village head) or "นางที่..." is not a title before a name
         end = first_end
         # A surname follows after a single space.
         if end + 1 < len(text) and text[end] == " " and THAI_CHAR.match(text[end + 1]):
