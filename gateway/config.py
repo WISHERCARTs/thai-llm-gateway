@@ -2,7 +2,7 @@
 
 from functools import cached_property
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -46,6 +46,30 @@ class Settings(BaseSettings):
     injection_mode: str = "block"  # block | flag | off
     injection_threshold: float = 0.7
     system_leak_check: bool = True
+
+    @field_validator(
+        "gateway_client_keys",
+        "user_hash_salt",
+        "gemini_api_key",
+        "upstash_redis_rest_url",
+        "upstash_redis_rest_token",
+        "database_url",
+        "langfuse_public_key",
+        "langfuse_secret_key",
+        mode="before",
+    )
+    @classmethod
+    def _clean_pasted(cls, value: object) -> object:
+        """Values pasted from dashboards often carry quotes, NAME= or a trailing newline."""
+        if not isinstance(value, str):
+            return value
+        value = value.strip()
+        name, sep, rest = value.partition("=")
+        if sep and name.isupper() and name.replace("_", "").isalnum():
+            value = rest.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1].strip()
+        return value
 
     @cached_property
     def client_keys(self) -> dict[str, str]:

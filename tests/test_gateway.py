@@ -2,6 +2,9 @@
 
 import json
 
+import pytest
+
+from gateway.config import Settings
 from tests.conftest import AUTH
 
 
@@ -152,3 +155,30 @@ def test_missing_provider_key(settings):
     body = {"model": "gemini-2.5-flash", "messages": [{"role": "user", "content": "hi"}]}
     r = client.post("/v1/chat/completions", json=body, headers=AUTH)
     assert r.status_code == 503 and r.json()["error"]["code"] == "provider_not_configured"
+
+
+def test_unexpected_error_keeps_openai_shape(gw, monkeypatch):
+    async def broken(*_args, **_kwargs):
+        raise RuntimeError("store is down")
+
+    monkeypatch.setattr(gw.store, "get", broken)
+    resp = gw.chat("สวัสดี")
+    assert resp.status_code == 500
+    assert resp.json()["error"]["code"] == "internal_error"
+    assert resp.headers["x-request-id"]
+    assert gw.provider.calls == []
+
+
+@pytest.mark.parametrize(
+    "pasted",
+    [
+        "https://x.upstash.io",
+        '"https://x.upstash.io"',
+        "'https://x.upstash.io'\n",
+        'UPSTASH_REDIS_REST_URL="https://x.upstash.io"',
+    ],
+)
+def test_settings_clean_pasted_values(pasted):
+    s = Settings(_env_file=None, upstash_redis_rest_url=pasted, database_url=f"  {pasted}  ")
+    assert s.upstash_redis_rest_url == "https://x.upstash.io"
+    assert s.database_url.get_secret_value() == "https://x.upstash.io"
