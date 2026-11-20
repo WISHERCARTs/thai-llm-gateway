@@ -5,7 +5,7 @@ import json
 import pytest
 
 from gateway.config import Settings
-from tests.conftest import AUTH
+from tests.conftest import AUTH, FakeProvider
 
 
 def test_auth(gw):
@@ -182,3 +182,19 @@ def test_settings_clean_pasted_values(pasted):
     s = Settings(_env_file=None, upstash_redis_rest_url=pasted, database_url=f"  {pasted}  ")
     assert s.upstash_redis_rest_url == "https://x.upstash.io"
     assert s.database_url.get_secret_value() == "https://x.upstash.io"
+
+
+def test_thinking_tokens_are_billed(gw, fake):
+    async def thinking_chat(body):
+        reply = await FakeProvider.chat(fake, body)
+        reply["usage"] = {"prompt_tokens": 36, "completion_tokens": 91, "total_tokens": 1050}
+        return reply
+
+    fake.chat = thinking_chat
+    resp = gw.chat("ดอยอินทนนท์สูงเท่าไร")
+    assert resp.status_code == 200
+    record = gw.sink.records[-1]
+    assert (record.input_tokens, record.output_tokens) == (36, 1014)
+    # gemini-2.5-flash: 0.30 per 1M input, 2.50 per 1M output
+    assert resp.headers["x-gateway-cost-usd"] == f"{36 * 0.30 / 1e6 + 1014 * 2.50 / 1e6:.8f}"
+    assert gw.span("llm gemini-2.5-flash").attributes["gen_ai.usage.reasoning_tokens"] == 923
