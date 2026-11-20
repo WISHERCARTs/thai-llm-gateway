@@ -48,5 +48,5 @@ jobs:
       - name: Smoke test
         run: |
           docker run -d --name gw -p 8080:8080 -e GATEWAY_CLIENT_KEYS=ci:ci-key thai-llm-gateway
-          for i in $(seq 1 30); do curl -fs localhost:8080/healthz && break; sleep 1; done
+          for i in $(seq 1 30); do curl -fs localhost:8080/health && break; sleep 1; done
           curl -fs localhost:8080/v1/models -H "Authorization: Bearer ci-key"

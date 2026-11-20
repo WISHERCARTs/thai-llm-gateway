@@ -137,6 +137,7 @@ def test_trace_shape(gw):
 
 
 def test_models_and_health(gw):
+    assert gw.client.get("/health").json() == {"status": "ok"}
     assert gw.client.get("/healthz").json() == {"status": "ok"}
     ids = [m["id"] for m in gw.client.get("/v1/models", headers=AUTH).json()["data"]]
     assert "gemini-2.5-flash" in ids
