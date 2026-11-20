@@ -30,6 +30,16 @@ RUNTIME_SA="${RUNTIME_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 DEPLOY_SA="${DEPLOY_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 step() { printf '\n== %s\n' "$*"; }
+# A new service account takes a short while to be visible to IAM, so bindings are retried.
+retry() {
+  local n
+  for n in 1 2 3 4 5 6; do
+    "$@" && return 0
+    echo "  not ready yet, retrying in $((n * 5))s" >&2
+    sleep $((n * 5))
+  done
+  "$@"
+}
 
 step "Project ${PROJECT_ID} (${PROJECT_NUMBER}), region ${REGION}"
 if [[ "$(gcloud billing projects describe "$PROJECT_ID" --format='value(billingEnabled)' 2>/dev/null)" != "True" ]]; then
@@ -54,11 +64,11 @@ for sa in "$RUNTIME_SA_NAME:the Cloud Run service" "$DEPLOY_SA_NAME:GitHub Actio
     gcloud iam service-accounts create "$name" --display-name "thai-llm-gateway: ${sa#*:}" --quiet
 done
 for role in roles/run.admin roles/artifactregistry.writer; do
-  gcloud projects add-iam-policy-binding "$PROJECT_ID" --member "serviceAccount:${DEPLOY_SA}" --role "$role" \
+  retry gcloud projects add-iam-policy-binding "$PROJECT_ID" --member "serviceAccount:${DEPLOY_SA}" --role "$role" \
     --condition None --quiet >/dev/null
 done
 # The deployer may run the service as the runtime account, and nothing else.
-gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA" --member "serviceAccount:${DEPLOY_SA}" \
+retry gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA" --member "serviceAccount:${DEPLOY_SA}" \
   --role roles/iam.serviceAccountUser --quiet >/dev/null
 
 step "Workload Identity Federation: GitHub Actions in ${GITHUB_REPO} only, no JSON keys"
@@ -72,7 +82,7 @@ gcloud iam workload-identity-pools providers describe "$PROVIDER" --location glo
     --attribute-mapping "google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref" \
     --attribute-condition "assertion.repository == '${GITHUB_REPO}'" --quiet
 POOL_ID="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL}"
-gcloud iam service-accounts add-iam-policy-binding "$DEPLOY_SA" --role roles/iam.workloadIdentityUser \
+retry gcloud iam service-accounts add-iam-policy-binding "$DEPLOY_SA" --role roles/iam.workloadIdentityUser \
   --member "principalSet://iam.googleapis.com/${POOL_ID}/attribute.repository/${GITHUB_REPO}" --quiet >/dev/null
 
 step "Secrets"
@@ -80,7 +90,7 @@ secret_exists() { gcloud secrets describe "${SECRET_PREFIX}$1" >/dev/null 2>&1; 
 put_secret() { # name, value on stdin
   secret_exists "$1" || gcloud secrets create "${SECRET_PREFIX}$1" --replication-policy automatic --quiet >/dev/null
   gcloud secrets versions add "${SECRET_PREFIX}$1" --data-file - --quiet >/dev/null
-  gcloud secrets add-iam-policy-binding "${SECRET_PREFIX}$1" --member "serviceAccount:${RUNTIME_SA}" \
+  retry gcloud secrets add-iam-policy-binding "${SECRET_PREFIX}$1" --member "serviceAccount:${RUNTIME_SA}" \
     --role roles/secretmanager.secretAccessor --quiet >/dev/null
   echo "  saved ${SECRET_PREFIX}$1"
 }
