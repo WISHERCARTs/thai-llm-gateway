@@ -83,8 +83,10 @@ def create_app(
             except Exception as exc:  # never fail the request after the answer was sent
                 log.warning("could not add spend for %s: %s", record.request_id, exc)
 
-    @app.get("/healthz")
-    async def healthz() -> dict[str, str]:
+    # Cloud Run's front end answers /healthz itself with a 404, so /health is the public one.
+    @app.get("/health")
+    @app.get("/healthz", include_in_schema=False)
+    async def health() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.get("/v1/models")

@@ -73,5 +73,5 @@ jobs:
         if: steps.ready.outputs.ok == 'true'
         run: |
           URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)')"
-          curl -fsS "$URL/healthz"
+          curl -fsS --retry 5 --retry-all-errors --retry-delay 3 "$URL/health"
           echo "::notice::Deployed $URL"

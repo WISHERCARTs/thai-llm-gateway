@@ -104,7 +104,7 @@ Costs are estimated from the list prices in [gateway/pricing.py](gateway/pricing
 
 1. In Cloud Shell, in the gateway's project, run [scripts/gcp-setup.sh](scripts/gcp-setup.sh). It enables the APIs, creates the image repository and two service accounts (runtime and deployer), sets up Workload Identity Federation for this repository only, asks for each secret in a hidden prompt and stores it in Secret Manager, generates the client keys and the hash salt, and applies the database schema. It is safe to run again.
 2. Put the three identifiers it prints into the `env` block of [deploy.yml](.github/workflows/deploy.yml) (already filled in for this repository's project).
-3. Every merge to `main` that touches the app then builds the image, deploys it to Cloud Run in `asia-southeast1` (0 to 2 instances) and checks `/healthz`.
+3. Every merge to `main` that touches the app then builds the image, deploys it to Cloud Run in `asia-southeast1` (0 to 2 instances) and checks `/health` (Cloud Run keeps `/healthz` for itself).
 
 The repository holds no Google credentials: GitHub Actions signs in with a short-lived OIDC token that only this repository can use.
 
