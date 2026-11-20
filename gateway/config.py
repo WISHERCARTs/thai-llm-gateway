@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr = SecretStr("")
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai"
     gemini_models: list[str] = Field(default_factory=lambda: ["gemini-2.5-flash", "gemini-2.5-flash-lite"])
+    # Gemini's own API, for embeddings with a task type (its OpenAI-compatible endpoint has none).
+    gemini_native_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    embedding_models: list[str] = Field(default_factory=lambda: ["gemini-embedding-001"])
     ollama_base_url: str = "http://localhost:11434/v1"
     ollama_enabled: bool = True
     upstream_timeout_seconds: float = 60.0

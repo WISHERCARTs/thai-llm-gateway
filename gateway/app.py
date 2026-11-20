@@ -1,4 +1,4 @@
-"""FastAPI app: an OpenAI-compatible /v1/chat/completions in front of Gemini and Ollama."""
+"""FastAPI app: OpenAI-compatible /v1/chat/completions and /v1/embeddings in front of Gemini and Ollama."""
 
 import hmac
 import logging
@@ -12,6 +12,7 @@ from opentelemetry.sdk.trace.export import SpanExporter
 from starlette.background import BackgroundTask, BackgroundTasks
 
 from gateway.config import Settings
+from gateway.embeddings import Embedder, build_embedders
 from gateway.errors import GatewayError
 from gateway.limits import Limiter
 from gateway.pipeline import Context, Pipeline, hash_user
@@ -41,6 +42,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     providers: dict[str, Provider] | None = None,
+    embedders: dict[str, Embedder] | None = None,
     store: CounterStore | None = None,
     sink: UsageSink | None = None,
     span_exporter: SpanExporter | None = None,
@@ -54,6 +56,7 @@ def create_app(
         dsn = settings.database_url.get_secret_value()
         sink = PostgresSink(dsn) if dsn else MemorySink()
     providers = providers if providers is not None else build_providers(settings)
+    embedders = embedders if embedders is not None else build_embedders(settings)
     tracer_provider = setup_tracing(settings, span_exporter, batch=span_exporter is None)
     limiter = Limiter(
         store,
@@ -62,12 +65,12 @@ def create_app(
         user_per_day=settings.rate_limit_user_per_day,
         daily_budget_usd=settings.daily_budget_usd,
     )
-    pipeline = Pipeline(settings, providers, limiter, tracer(tracer_provider))
+    pipeline = Pipeline(settings, providers, limiter, tracer(tracer_provider), embedders)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         yield
-        for closable in [*providers.values(), store, sink]:
+        for closable in [*providers.values(), *embedders.values(), store, sink]:
             if hasattr(closable, "aclose"):
                 await closable.aclose()
         tracer_provider.shutdown()
@@ -99,8 +102,7 @@ def create_app(
         names = list(settings.gemini_models)
         return {"object": "list", "data": [{"id": n, "object": "model", "owned_by": "gateway"} for n in names]}
 
-    @app.post("/v1/chat/completions")
-    async def chat(request: Request) -> Any:
+    async def handle(request: Request, run) -> Any:
         request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
         try:
             client = authenticate(request, settings)
@@ -114,9 +116,15 @@ def create_app(
             return GatewayError(400, "invalid_json", "Body must be a JSON object").response(request_id)
         end_user = request.headers.get("x-end-user") or body.get("user")
         raw_user = end_user if isinstance(end_user, str) else None
-        ctx = Context(request_id, client, hash_user(raw_user, settings.user_hash_salt.get_secret_value()))
+        session = request.headers.get("x-session-id")
+        ctx = Context(
+            request_id,
+            client,
+            hash_user(raw_user, settings.user_hash_salt.get_secret_value()),
+            session[:128] if session else None,
+        )
         try:
-            outcome = await pipeline.chat(body, ctx)
+            outcome = await run(body, ctx)
         except GatewayError as err:
             response = err.response(request_id)
             record = getattr(err, "record", None)
@@ -130,5 +138,13 @@ def create_app(
         tasks = BackgroundTasks()
         tasks.add_task(after, outcome.record, outcome.cost_usd)
         return JSONResponse(outcome.body, headers={**outcome.headers, "x-request-id": request_id}, background=tasks)
+
+    @app.post("/v1/chat/completions")
+    async def chat(request: Request) -> Any:
+        return await handle(request, pipeline.chat)
+
+    @app.post("/v1/embeddings")
+    async def embeddings(request: Request) -> Any:
+        return await handle(request, pipeline.embed)
 
     return app

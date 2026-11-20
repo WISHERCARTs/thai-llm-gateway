@@ -12,6 +12,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
 from gateway.config import Settings
+from gateway.embeddings import Embedder, estimate_tokens, parse_request
 from gateway.errors import GatewayError
 from gateway.guardrails.injection import score_injection
 from gateway.guardrails.output import leaks_system_prompt
@@ -40,6 +41,7 @@ class Context:
     request_id: str
     client: str
     end_user_hash: str | None
+    session_id: str | None = None  # groups the calls of one agent run into one Langfuse session
     started: float = field(default_factory=time.perf_counter)
 
 
@@ -74,31 +76,113 @@ def _dump(value: Any) -> str:
 
 
 class Pipeline:
-    def __init__(self, settings: Settings, providers: dict[str, Provider], limiter: Limiter, tracer: trace.Tracer):
+    def __init__(
+        self,
+        settings: Settings,
+        providers: dict[str, Provider],
+        limiter: Limiter,
+        tracer: trace.Tracer,
+        embedders: dict[str, Embedder] | None = None,
+    ):
         self.settings = settings
         self.providers = providers
         self.limiter = limiter
         self.tracer = tracer
+        self.embedders = embedders or {}
+
+    def _start(self, root, ctx: Context) -> None:
+        root.set_attribute("gateway.request_id", ctx.request_id)
+        root.set_attribute("gateway.client", ctx.client)
+        if ctx.end_user_hash:
+            root.set_attribute("langfuse.user.id", ctx.end_user_hash)
+        if ctx.session_id:
+            root.set_attribute("langfuse.session.id", ctx.session_id)
+
+    def _fail(self, err: GatewayError, record: UsageRecord, ctx: Context, root) -> None:
+        record.status = err.status
+        record.blocked_reason = record.blocked_reason or err.code
+        record.latency_ms = int((time.perf_counter() - ctx.started) * 1000)
+        root.set_status(Status(StatusCode.ERROR, err.code))
+        root.set_attribute("gateway.error_code", err.code)
+        err.record = record  # type: ignore[attr-defined]
 
     async def chat(self, body: dict[str, Any], ctx: Context) -> Outcome:
         record = UsageRecord(ctx.request_id, ctx.client, ctx.end_user_hash, None, body.get("model"), 200)
         with self.tracer.start_as_current_span("gateway.chat") as root:
-            root.set_attribute("gateway.request_id", ctx.request_id)
-            root.set_attribute("gateway.client", ctx.client)
-            if ctx.end_user_hash:
-                root.set_attribute("langfuse.user.id", ctx.end_user_hash)
+            self._start(root, ctx)
             try:
                 outcome = await self._chat(body, ctx, record, root)
             except GatewayError as err:
-                record.status = err.status
-                record.blocked_reason = record.blocked_reason or err.code
-                record.latency_ms = int((time.perf_counter() - ctx.started) * 1000)
-                root.set_status(Status(StatusCode.ERROR, err.code))
-                root.set_attribute("gateway.error_code", err.code)
-                err.record = record  # type: ignore[attr-defined]
+                self._fail(err, record, ctx, root)
                 raise
             root.set_attribute("gateway.cost_usd", outcome.cost_usd)
             return outcome
+
+    async def embed(self, body: dict[str, Any], ctx: Context) -> Outcome:
+        record = UsageRecord(ctx.request_id, ctx.client, ctx.end_user_hash, None, body.get("model"), 200)
+        with self.tracer.start_as_current_span("gateway.embeddings") as root:
+            self._start(root, ctx)
+            try:
+                outcome = await self._embed(body, ctx, record)
+            except GatewayError as err:
+                self._fail(err, record, ctx, root)
+                raise
+            root.set_attribute("gateway.cost_usd", outcome.cost_usd)
+            return outcome
+
+    async def _embed(self, body: dict[str, Any], ctx: Context, record: UsageRecord) -> Outcome:
+        s = self.settings
+        model = body.get("model")
+        if not isinstance(model, str):
+            raise GatewayError(400, "invalid_model", "model is required")
+        name = model.removeprefix("gemini/").removeprefix("models/")
+        if name not in s.embedding_models:
+            raise GatewayError(400, "model_not_allowed", f"embedding model {model!r} is not served by this gateway")
+        record.provider, record.model = "gemini", name
+        texts, task_type, dimensions = parse_request(body)
+        embedder = self.embedders.get("gemini")
+        if embedder is None:
+            raise GatewayError(503, "provider_not_configured", "gemini has no API key on this gateway")
+
+        with self.tracer.start_as_current_span("gateway.limits"):
+            await self.limiter.check(ctx.client, ctx.end_user_hash)
+
+        vault = Vault()
+        with self.tracer.start_as_current_span("guardrail.input") as span:
+            # No injection check: an embedding model follows no instructions, and nothing it returns is text.
+            if s.pii_redaction:
+                texts = [vault.redact(t).text for t in texts]
+            record.pii_redactions = vault.total
+            span.set_attribute("guardrail.pii.redacted", vault.total)
+            span.set_attribute("guardrail.pii.kinds", sorted(vault.counts))
+
+        with self.tracer.start_as_current_span(f"embeddings {name}") as span:
+            span.set_attribute("langfuse.observation.type", "embedding")
+            span.set_attribute("gen_ai.system", "gemini")
+            span.set_attribute("gen_ai.operation.name", "embeddings")
+            span.set_attribute("gen_ai.request.model", name)
+            span.set_attribute("gateway.embeddings.count", len(texts))
+            if task_type:
+                span.set_attribute("gateway.embeddings.task_type", task_type)
+            if dimensions:
+                span.set_attribute("gen_ai.request.embedding.dimensions", dimensions)
+            span.set_attribute("langfuse.observation.input", _dump(texts))
+            vectors, reported = await embedder.embed(name, texts, task_type=task_type, dimensions=dimensions)
+            tokens = reported if reported is not None else estimate_tokens(texts)
+            cost = estimate_cost("gemini", name, tokens, 0)
+            span.set_attribute("gen_ai.usage.input_tokens", tokens)
+            span.set_attribute("gateway.tokens_estimated", reported is None)
+            span.set_attribute("gateway.cost_usd", cost)
+        record.input_tokens, record.cost_usd = tokens, cost
+        record.latency_ms = int((time.perf_counter() - ctx.started) * 1000)
+        response = {
+            "object": "list",
+            "data": [{"object": "embedding", "index": i, "embedding": v} for i, v in enumerate(vectors)],
+            "model": name,
+            "usage": {"prompt_tokens": tokens, "total_tokens": tokens},
+        }
+        headers = {"x-gateway-cost-usd": f"{cost:.8f}", "x-gateway-pii-redacted": str(vault.total)}
+        return Outcome(response, headers, record, cost)
 
     async def _chat(self, body: dict[str, Any], ctx: Context, record: UsageRecord, root) -> Outcome:
         s = self.settings

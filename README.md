@@ -27,7 +27,16 @@ flowchart LR
 5. **Output guardrails.** An answer that repeats a long stretch of the system prompt is replaced and marked `finish_reason: content_filter`. Personal data the model wrote itself is masked as `[REDACTED_PHONE]`.
 6. **Restore.** The caller's own values are put back where the model used the placeholders, so the user sees their own phone number while Gemini and the traces never did.
 
-Response headers: `x-request-id`, `x-gateway-cost-usd`, `x-gateway-pii-redacted`, `x-gateway-injection-score`, `x-ratelimit-remaining-requests`.
+Response headers: `x-request-id`, `x-gateway-cost-usd`, `x-gateway-pii-redacted`, `x-gateway-injection-score`, `x-ratelimit-remaining-requests`. A client can send `x-session-id` to group the calls of one agent run into one Langfuse session.
+
+### Embeddings
+
+`POST /v1/embeddings` takes the OpenAI body (`model`, `input`, `dimensions`) plus a `task_type` such as `RETRIEVAL_QUERY` or `RETRIEVAL_DOCUMENT`. It goes through the same client keys, limits, budget, PII redaction, usage log and spans as chat, but calls Gemini's own `batchEmbedContents` instead of the OpenAI-compatible endpoint, because only the own API takes a task type, and `gemini-embedding-001` gives different vectors for queries and documents. There is no injection check: an embedding model follows no instructions. Gemini does not report token counts for embeddings, so the cost is estimated at 2 characters per token, which errs high.
+
+```bash
+curl localhost:8080/v1/embeddings -H "Authorization: Bearer change-me" -H "Content-Type: application/json" \
+  -d '{"model": "gemini-embedding-001", "input": ["ดอยอินทนนท์สูงเท่าไร"], "task_type": "RETRIEVAL_QUERY", "dimensions": 768}'
+```
 
 ## Design decisions
 
@@ -118,6 +127,7 @@ gateway/
   limits.py         rate limits and the daily budget
   state.py          counter stores: Upstash Redis (REST) and in-memory
   providers.py      OpenAI-compatible upstreams with retries, model routing
+  embeddings.py     Gemini batchEmbedContents with task types, request checks
   usage.py          usage records to Postgres
   migrate.py        applies db/migrations in order
   telemetry.py      OpenTelemetry setup and the Langfuse exporter
@@ -130,7 +140,7 @@ db/migrations/     usage_log table and usage_daily view
 
 1. ~~Core: proxy, limits, cost log, traces~~
 2. ~~Guardrails: Thai and English PII, prompt injection, output checks~~
-3. Deploy to Cloud Run with GitHub Actions (setup script and workflow done), route thai-rag-agents through it, and serve the portfolio's "ask it yourself" demo.
+3. ~~Deploy to Cloud Run with GitHub Actions~~, then route thai-rag-agents (chat and embeddings) through it and serve the portfolio's "ask it yourself" demo.
 4. Semantic cache (pgvector on the same Postgres), a held-out guardrail set and a model-based injection classifier, and the portfolio chatbot.
 
 ## License
