@@ -123,6 +123,10 @@ def create_app(
             if record is not None:
                 response.background = BackgroundTask(after, record, 0.0)
             return response
+        except Exception:
+            # Keep the OpenAI error shape and the request id, so a client and the logs can be matched.
+            log.exception("unhandled error in request %s", request_id)
+            return GatewayError(500, "internal_error", "The gateway hit an internal error").response(request_id)
         tasks = BackgroundTasks()
         tasks.add_task(after, outcome.record, outcome.cost_usd)
         return JSONResponse(outcome.body, headers={**outcome.headers, "x-request-id": request_id}, background=tasks)

@@ -105,6 +105,7 @@ ask_secret() { # name, prompt, required prefix (optional)
     echo
     # Pasted snippets often carry a command or quotes around the value, e.g. psql 'postgresql://...'.
     value="${value#psql }"
+    value="${value#"$1"=}"
     value="${value//\'/}"
     value="${value//\"/}"
     value="$(printf '%s' "$value" | tr -d '[:space:]')"
