@@ -1,0 +1,77 @@
+name: Deploy
+
+# Builds the image and deploys it to Cloud Run after a merge to main, or by hand from the Actions tab.
+# GitHub signs in to Google Cloud with Workload Identity Federation (scripts/gcp-setup.sh), so the repo
+# holds no Google credentials. The values below are identifiers, not secrets.
+on:
+  push:
+    branches: [main]
+    paths: ["gateway/**", "db/**", "Dockerfile", "requirements.txt", ".github/workflows/deploy.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  GCP_PROJECT_ID: gen-lang-client-0786555487   # from scripts/gcp-setup.sh; not secret
+  GCP_WIF_PROVIDER: projects/85542351836/locations/global/workloadIdentityPools/llm-gateway-github/providers/github
+  GCP_DEPLOY_SA: gateway-deployer@gen-lang-client-0786555487.iam.gserviceaccount.com
+  REGION: asia-southeast1
+  SERVICE: thai-llm-gateway
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # for Workload Identity Federation
+    steps:
+      - name: Skip until Google Cloud is set up
+        id: ready
+        run: |
+          if [ -z "$GCP_PROJECT_ID" ]; then
+            echo "::notice::Deploy skipped: run scripts/gcp-setup.sh and fill in the env block first."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.ready.outputs.ok == 'true'
+
+      - uses: google-github-actions/auth@v2
+        if: steps.ready.outputs.ok == 'true'
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        if: steps.ready.outputs.ok == 'true'
+
+      - name: Build and push the image
+        if: steps.ready.outputs.ok == 'true'
+        run: |
+          IMAGE="${REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/gateway/gateway:${GITHUB_SHA}"
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Deploy to Cloud Run
+        if: steps.ready.outputs.ok == 'true'
+        run: |
+          # max-instances caps the bill if the demo is hammered; the gateway's own limits do the rest.
+          gcloud run deploy "$SERVICE" --image "$IMAGE" --region "$REGION" --quiet \
+            --service-account "gateway-runtime@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+            --allow-unauthenticated \
+            --min-instances 0 --max-instances 2 --concurrency 40 --cpu 1 --memory 512Mi --timeout 90 \
+            --set-env-vars "ENVIRONMENT=production,LANGFUSE_HOST=https://cloud.langfuse.com,OLLAMA_ENABLED=false" \
+            --set-secrets "GATEWAY_CLIENT_KEYS=LLM_GATEWAY_GATEWAY_CLIENT_KEYS:latest,USER_HASH_SALT=LLM_GATEWAY_USER_HASH_SALT:latest,GEMINI_API_KEY=LLM_GATEWAY_GEMINI_API_KEY:latest,UPSTASH_REDIS_REST_URL=LLM_GATEWAY_UPSTASH_REDIS_REST_URL:latest,UPSTASH_REDIS_REST_TOKEN=LLM_GATEWAY_UPSTASH_REDIS_REST_TOKEN:latest,DATABASE_URL=LLM_GATEWAY_DATABASE_URL:latest,LANGFUSE_PUBLIC_KEY=LLM_GATEWAY_LANGFUSE_PUBLIC_KEY:latest,LANGFUSE_SECRET_KEY=LLM_GATEWAY_LANGFUSE_SECRET_KEY:latest"
+
+      - name: Smoke test
+        if: steps.ready.outputs.ok == 'true'
+        run: |
+          URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)')"
+          curl -fsS "$URL/healthz"
+          echo "::notice::Deployed $URL"
