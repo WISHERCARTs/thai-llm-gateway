@@ -18,6 +18,7 @@ class Price:
 PRICES: dict[str, Price] = {
     "gemini-2.5-flash": Price(0.30, 2.50),
     "gemini-2.5-flash-lite": Price(0.10, 0.40),
+    "gemini-embedding-001": Price(0.15, 0.0),
 }
 # Unknown hosted models are priced at the most expensive known rate so the budget errs on the safe side.
 FALLBACK = Price(1.25, 10.0)

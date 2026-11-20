@@ -27,7 +27,16 @@ flowchart LR
 5. **Output guardrails.** An answer that repeats a long stretch of the system prompt is replaced and marked `finish_reason: content_filter`. Personal data the model wrote itself is masked as `[REDACTED_PHONE]`.
 6. **Restore.** The caller's own values are put back where the model used the placeholders, so the user sees their own phone number while Gemini and the traces never did.
 
-Response headers: `x-request-id`, `x-gateway-cost-usd`, `x-gateway-pii-redacted`, `x-gateway-injection-score`, `x-ratelimit-remaining-requests`.
+Response headers: `x-request-id`, `x-gateway-cost-usd`, `x-gateway-pii-redacted`, `x-gateway-injection-score`, `x-ratelimit-remaining-requests`. A client can send `x-session-id` to group the calls of one agent run into one Langfuse session.
+
+### Embeddings
+
+`POST /v1/embeddings` takes the OpenAI body (`model`, `input`, `dimensions`) plus a `task_type` such as `RETRIEVAL_QUERY` or `RETRIEVAL_DOCUMENT`. It goes through the same client keys, limits, budget, PII redaction, usage log and spans as chat, but calls Gemini's own `batchEmbedContents` instead of the OpenAI-compatible endpoint, because only the own API takes a task type, and `gemini-embedding-001` gives different vectors for queries and documents. There is no injection check: an embedding model follows no instructions. Gemini does not report token counts for embeddings, so the cost is estimated at 2 characters per token, which errs high.
+
+```bash
+curl localhost:8080/v1/embeddings -H "Authorization: Bearer change-me" -H "Content-Type: application/json" \
+  -d '{"model": "gemini-embedding-001", "input": ["ดอยอินทนนท์สูงเท่าไร"], "task_type": "RETRIEVAL_QUERY", "dimensions": 768}'
+```
 
 ## Design decisions
 
@@ -37,7 +46,7 @@ Response headers: `x-request-id`, `x-gateway-cost-usd`, `x-gateway-pii-redacted`
 | Rules, not a model, for PII and injection | No extra model call, no added latency or cost, and every block names the rule that fired. The trade-off is lower recall on paraphrased attacks; the [evaluation](#guardrail-evaluation) shows where. |
 | Redact, then restore | Redacting alone breaks answers like "I'll call you at [PHONE_1]". The mapping lives only in memory for the one request. |
 | Thai ID numbers must pass the mod-11 checksum, cards the Luhn check | Order numbers and other 13- or 16-digit numbers are common in Thai text; the checksums keep them from being redacted. |
-| Thai names only after a title (นาย, นางสาว, ด.ช., ...) | Thai has no capital letters or spaces between words. PyThaiNLP's tokenizer finds where the name ends, and titles inside words (นายกรัฐมนตรี, นางพยาบาล) are skipped. "คุณ" is left out because it also means "you". |
+| Thai names only after a title (นาย, นางสาว, ด.ช., ...) | Thai has no capital letters or spaces between words. PyThaiNLP's tokenizer finds where the name ends, and a title must be a whole token where it was found, so titles inside words (นายกรัฐมนตรี, นางพยาบาล, มิถุนายน, เจ้านาย, ขุนนาง) are skipped. On the 1,698 Thai Wikipedia passages thai-rag-agents searches, that cut name matches from 178 to 108; most of the rest are real names, such as lists of past governors. "คุณ" is left out because it also means "you". |
 | Check the answer for system-prompt leaks | An injection the input rules missed usually shows up as the model repeating its instructions. |
 | No streaming yet | The output checks need the whole answer. Streaming with a held-back buffer is possible later. |
 | Upstash Redis for counters, Postgres (Neon) for the cost log | Cloud Run instances come and go, so counters cannot live in memory. Redis is the usual tool for counters; Postgres makes the cost report one SQL query (`usage_daily` view). Neon's free plan wakes on the first query instead of pausing the project, and the code only needs a `DATABASE_URL`, so any Postgres works. |
@@ -118,6 +127,7 @@ gateway/
   limits.py         rate limits and the daily budget
   state.py          counter stores: Upstash Redis (REST) and in-memory
   providers.py      OpenAI-compatible upstreams with retries, model routing
+  embeddings.py     Gemini batchEmbedContents with task types, request checks
   usage.py          usage records to Postgres
   migrate.py        applies db/migrations in order
   telemetry.py      OpenTelemetry setup and the Langfuse exporter
@@ -130,7 +140,7 @@ db/migrations/     usage_log table and usage_daily view
 
 1. ~~Core: proxy, limits, cost log, traces~~
 2. ~~Guardrails: Thai and English PII, prompt injection, output checks~~
-3. Deploy to Cloud Run with GitHub Actions (setup script and workflow done), route thai-rag-agents through it, and serve the portfolio's "ask it yourself" demo.
+3. ~~Deploy to Cloud Run with GitHub Actions~~, then route thai-rag-agents (chat and embeddings) through it and serve the portfolio's "ask it yourself" demo.
 4. Semantic cache (pgvector on the same Postgres), a held-out guardrail set and a model-based injection classifier, and the portfolio chatbot.
 
 ## License

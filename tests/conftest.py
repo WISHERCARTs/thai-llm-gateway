@@ -28,6 +28,20 @@ class FakeProvider:
         }
 
 
+class FakeEmbedder:
+    """Returns a small vector per input and records what it was sent."""
+
+    name = "gemini"
+
+    def __init__(self, tokens=None):
+        self.tokens = tokens
+        self.calls: list[dict] = []
+
+    async def embed(self, model, texts, *, task_type, dimensions):
+        self.calls.append({"model": model, "texts": texts, "task_type": task_type, "dimensions": dimensions})
+        return [[float(len(t)), 1.0] for t in texts], self.tokens
+
+
 KEY = "test-key"
 AUTH = {"Authorization": f"Bearer {KEY}"}
 
@@ -54,9 +68,11 @@ def gw(settings, fake):
             self.sink = MemorySink()
             self.spans = InMemorySpanExporter()
             self.provider = fake
+            self.embedder = FakeEmbedder()
             self.app = create_app(
                 settings,
                 providers={"gemini": fake, "ollama": FakeProvider("ollama")},
+                embedders={"gemini": self.embedder},
                 store=self.store,
                 sink=self.sink,
                 span_exporter=self.spans,
@@ -66,6 +82,10 @@ def gw(settings, fake):
         def chat(self, content="สวัสดี", *, headers=None, **body):
             payload = {"model": "gemini-2.5-flash", "messages": [{"role": "user", "content": content}], **body}
             return self.client.post("/v1/chat/completions", json=payload, headers={**AUTH, **(headers or {})})
+
+        def embed(self, input="ชลบุรีอยู่ห่างจากกรุงเทพกี่กิโลเมตร", *, headers=None, **body):
+            payload = {"model": "gemini-embedding-001", "input": input, **body}
+            return self.client.post("/v1/embeddings", json=payload, headers={**AUTH, **(headers or {})})
 
         def span(self, name):
             return next(s for s in self.spans.get_finished_spans() if s.name == name)
