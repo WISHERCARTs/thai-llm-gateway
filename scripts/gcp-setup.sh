@@ -96,7 +96,9 @@ ask_secret() { # name, prompt
 }
 random() { python3 -c 'import secrets; print(secrets.token_urlsafe(32), end="")'; }
 
-ask_secret GEMINI_API_KEY "Gemini API key (from aistudio.google.com/apikey, in this project)"
+# The key lives in a separate AI Studio project with no billing, so Gemini stays on the free tier
+# while this project pays for Cloud Run (billing on a project moves its Gemini keys to the paid tier).
+ask_secret GEMINI_API_KEY "Gemini API key (aistudio.google.com/apikey, from a project without billing)"
 ask_secret UPSTASH_REDIS_REST_URL "Upstash Redis REST URL (https://...upstash.io)"
 ask_secret UPSTASH_REDIS_REST_TOKEN "Upstash Redis REST token"
 ask_secret DATABASE_URL "Neon pooled connection string (postgresql://...-pooler...)"
