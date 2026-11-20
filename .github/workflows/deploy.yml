@@ -14,9 +14,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  GCP_PROJECT_ID: gen-lang-client-0374676959   # from scripts/gcp-setup.sh; not secret
-  GCP_WIF_PROVIDER: projects/384104236609/locations/global/workloadIdentityPools/github/providers/github
-  GCP_DEPLOY_SA: gateway-deployer@gen-lang-client-0374676959.iam.gserviceaccount.com
+  GCP_PROJECT_ID: ""      # filled in after scripts/gcp-setup.sh; not secret
+  GCP_WIF_PROVIDER: ""
+  GCP_DEPLOY_SA: ""
   REGION: asia-southeast1
   SERVICE: thai-llm-gateway
 
@@ -67,7 +67,7 @@ jobs:
             --allow-unauthenticated \
             --min-instances 0 --max-instances 2 --concurrency 40 --cpu 1 --memory 512Mi --timeout 90 \
             --set-env-vars "ENVIRONMENT=production,LANGFUSE_HOST=https://cloud.langfuse.com,OLLAMA_ENABLED=false" \
-            --set-secrets "GATEWAY_CLIENT_KEYS=GATEWAY_CLIENT_KEYS:latest,USER_HASH_SALT=USER_HASH_SALT:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,UPSTASH_REDIS_REST_URL=UPSTASH_REDIS_REST_URL:latest,UPSTASH_REDIS_REST_TOKEN=UPSTASH_REDIS_REST_TOKEN:latest,DATABASE_URL=DATABASE_URL:latest,LANGFUSE_PUBLIC_KEY=LANGFUSE_PUBLIC_KEY:latest,LANGFUSE_SECRET_KEY=LANGFUSE_SECRET_KEY:latest"
+            --set-secrets "GATEWAY_CLIENT_KEYS=LLM_GATEWAY_GATEWAY_CLIENT_KEYS:latest,USER_HASH_SALT=LLM_GATEWAY_USER_HASH_SALT:latest,GEMINI_API_KEY=LLM_GATEWAY_GEMINI_API_KEY:latest,UPSTASH_REDIS_REST_URL=LLM_GATEWAY_UPSTASH_REDIS_REST_URL:latest,UPSTASH_REDIS_REST_TOKEN=LLM_GATEWAY_UPSTASH_REDIS_REST_TOKEN:latest,DATABASE_URL=LLM_GATEWAY_DATABASE_URL:latest,LANGFUSE_PUBLIC_KEY=LLM_GATEWAY_LANGFUSE_PUBLIC_KEY:latest,LANGFUSE_SECRET_KEY=LLM_GATEWAY_LANGFUSE_SECRET_KEY:latest"
 
       - name: Smoke test
         if: steps.ready.outputs.ok == 'true'

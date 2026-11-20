@@ -15,8 +15,10 @@ SERVICE="thai-llm-gateway"
 AR_REPO="gateway"
 RUNTIME_SA_NAME="gateway-runtime"
 DEPLOY_SA_NAME="gateway-deployer"
-POOL="github"
+# Names are prefixed so the gateway can share a project with other work without touching it.
+POOL="llm-gateway-github"
 PROVIDER="github"
+SECRET_PREFIX="LLM_GATEWAY_"
 
 PROJECT_ID="$(gcloud config get-value project 2>/dev/null)"
 if [[ -z "$PROJECT_ID" ]]; then
@@ -61,7 +63,7 @@ gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA" --member "servi
 
 step "Workload Identity Federation: GitHub Actions in ${GITHUB_REPO} only, no JSON keys"
 gcloud iam workload-identity-pools describe "$POOL" --location global >/dev/null 2>&1 ||
-  gcloud iam workload-identity-pools create "$POOL" --location global --display-name "GitHub Actions" --quiet
+  gcloud iam workload-identity-pools create "$POOL" --location global --display-name "thai-llm-gateway GitHub" --quiet
 gcloud iam workload-identity-pools providers describe "$PROVIDER" --location global \
   --workload-identity-pool "$POOL" >/dev/null 2>&1 ||
   gcloud iam workload-identity-pools providers create-oidc "$PROVIDER" --location global \
@@ -74,13 +76,13 @@ gcloud iam service-accounts add-iam-policy-binding "$DEPLOY_SA" --role roles/iam
   --member "principalSet://iam.googleapis.com/${POOL_ID}/attribute.repository/${GITHUB_REPO}" --quiet >/dev/null
 
 step "Secrets"
-secret_exists() { gcloud secrets describe "$1" >/dev/null 2>&1; }
+secret_exists() { gcloud secrets describe "${SECRET_PREFIX}$1" >/dev/null 2>&1; }
 put_secret() { # name, value on stdin
-  secret_exists "$1" || gcloud secrets create "$1" --replication-policy automatic --quiet >/dev/null
-  gcloud secrets versions add "$1" --data-file - --quiet >/dev/null
-  gcloud secrets add-iam-policy-binding "$1" --member "serviceAccount:${RUNTIME_SA}" \
+  secret_exists "$1" || gcloud secrets create "${SECRET_PREFIX}$1" --replication-policy automatic --quiet >/dev/null
+  gcloud secrets versions add "${SECRET_PREFIX}$1" --data-file - --quiet >/dev/null
+  gcloud secrets add-iam-policy-binding "${SECRET_PREFIX}$1" --member "serviceAccount:${RUNTIME_SA}" \
     --role roles/secretmanager.secretAccessor --quiet >/dev/null
-  echo "  saved $1"
+  echo "  saved ${SECRET_PREFIX}$1"
 }
 ask_secret() { # name, prompt
   if secret_exists "$1" && [[ "${RESET:-}" != *"$1"* ]]; then
@@ -113,7 +115,7 @@ step "Database schema (usage_log)"
 if command -v psql >/dev/null; then
   MIGRATION="20261119000000_usage_log.sql"
   curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPO}/main/db/migrations/${MIGRATION}" -o "/tmp/${MIGRATION}"
-  DB_URL="$(gcloud secrets versions access latest --secret DATABASE_URL)"
+  DB_URL="$(gcloud secrets versions access latest --secret "${SECRET_PREFIX}DATABASE_URL")"
   psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f "/tmp/${MIGRATION}" -c "
     create table if not exists public.schema_migrations (name text primary key, applied_at timestamptz not null default now());
     insert into public.schema_migrations (name) values ('${MIGRATION}') on conflict do nothing;"
