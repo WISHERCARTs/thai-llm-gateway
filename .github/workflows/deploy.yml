@@ -14,9 +14,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  GCP_PROJECT_ID: ""      # filled in after scripts/gcp-setup.sh
-  GCP_WIF_PROVIDER: ""
-  GCP_DEPLOY_SA: ""
+  GCP_PROJECT_ID: gen-lang-client-0374676959   # from scripts/gcp-setup.sh; not secret
+  GCP_WIF_PROVIDER: projects/384104236609/locations/global/workloadIdentityPools/github/providers/github
+  GCP_DEPLOY_SA: gateway-deployer@gen-lang-client-0374676959.iam.gserviceaccount.com
   REGION: asia-southeast1
   SERVICE: thai-llm-gateway
 
