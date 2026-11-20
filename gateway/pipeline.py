@@ -163,11 +163,11 @@ class Pipeline:
                     span.set_attribute(f"gen_ai.request.{key}", body[key])
             response = await provider.chat(upstream)
             usage = response.get("usage") or {}
-            tokens_in = int(usage.get("prompt_tokens") or 0)
-            tokens_out = int(usage.get("completion_tokens") or 0)
+            tokens_in, tokens_out, reasoning = _billed_tokens(usage)
             cost = estimate_cost(route.provider, route.upstream_model, tokens_in, tokens_out)
             span.set_attribute("gen_ai.usage.input_tokens", tokens_in)
             span.set_attribute("gen_ai.usage.output_tokens", tokens_out)
+            span.set_attribute("gen_ai.usage.reasoning_tokens", reasoning)
             span.set_attribute("gen_ai.response.model", str(response.get("model") or route.upstream_model))
             span.set_attribute("gateway.cost_usd", cost)
             span.set_attribute("langfuse.observation.output", _dump(response.get("choices")))
@@ -208,3 +208,19 @@ class Pipeline:
         if limit.remaining_user_minute is not None:
             headers["x-ratelimit-remaining-requests"] = str(limit.remaining_user_minute)
         return Outcome(response, headers, record, cost)
+
+
+def _billed_tokens(usage: dict) -> tuple[int, int, int]:
+    """Input, billed output and reasoning tokens.
+
+    Gemini 2.5 thinks before it answers and bills those tokens as output, but its OpenAI-compatible
+    usage leaves them out of completion_tokens: they only show in total_tokens (or in
+    completion_tokens_details.reasoning_tokens where a provider reports them).
+    """
+    tokens_in = int(usage.get("prompt_tokens") or 0)
+    completion = int(usage.get("completion_tokens") or 0)
+    total = int(usage.get("total_tokens") or 0)
+    hidden = max(0, total - tokens_in - completion)  # thinking tokens missing from completion_tokens
+    details = usage.get("completion_tokens_details")
+    reported = int(details.get("reasoning_tokens") or 0) if isinstance(details, dict) else 0
+    return tokens_in, completion + hidden, hidden or reported

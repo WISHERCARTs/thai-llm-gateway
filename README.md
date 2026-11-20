@@ -98,7 +98,7 @@ python -m evals.guardrails.run --check
 
 All settings are environment variables; see [.env.example](.env.example). On Cloud Run the secrets (`GATEWAY_CLIENT_KEYS`, `GEMINI_API_KEY`, `USER_HASH_SALT`, `UPSTASH_REDIS_REST_TOKEN`, `DATABASE_URL`, `LANGFUSE_SECRET_KEY`) come from Secret Manager, stored with an `LLM_GATEWAY_` prefix so the gateway can share a Google Cloud project with other work. The `usage_log` table is in [db/migrations](db/migrations); apply it with `DATABASE_URL=... python -m gateway.migrate`.
 
-Costs are estimated from the list prices in [gateway/pricing.py](gateway/pricing.py), even on the free tier, so the budget cap and the cost report show what the traffic would cost on a paid key. Check the prices against Google's pricing page before relying on them.
+Costs are estimated from the list prices in [gateway/pricing.py](gateway/pricing.py), even on the free tier, so the budget cap and the cost report show what the traffic would cost on a paid key. Check the prices against Google's pricing page before relying on them. Gemini 2.5 bills its thinking tokens as output but leaves them out of `completion_tokens`, so the gateway counts output as `total_tokens - prompt_tokens`.
 
 ## Deploy (Cloud Run)
 
