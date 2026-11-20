@@ -94,15 +94,27 @@ put_secret() { # name, value on stdin
     --role roles/secretmanager.secretAccessor --quiet >/dev/null
   echo "  saved ${SECRET_PREFIX}$1"
 }
-ask_secret() { # name, prompt
-  if secret_exists "$1" && [[ "${RESET:-}" != *"$1"* ]]; then
+ask_secret() { # name, prompt, required prefix (optional)
+  if secret_exists "$1" && [[ ",${RESET:-}," != *",$1,"* ]]; then
     echo "  $1 already set (run with RESET=$1 to replace it)"
     return
   fi
   local value=""
-  while [[ -z "$value" ]]; do
+  while true; do
     read -r -s -p "  $2: " value
     echo
+    # Pasted snippets often carry a command or quotes around the value, e.g. psql 'postgresql://...'.
+    value="${value#psql }"
+    value="${value//\'/}"
+    value="${value//\"/}"
+    value="$(printf '%s' "$value" | tr -d '[:space:]')"
+    if [[ -z "$value" ]]; then
+      continue
+    elif [[ -n "${3:-}" && "$value" != "$3"* ]]; then
+      echo "  That does not start with $3; paste it again." >&2
+    else
+      break
+    fi
   done
   printf '%s' "$value" | put_secret "$1"
 }
@@ -111,11 +123,11 @@ random() { python3 -c 'import secrets; print(secrets.token_urlsafe(32), end="")'
 # The key lives in a separate AI Studio project with no billing, so Gemini stays on the free tier
 # while this project pays for Cloud Run (billing on a project moves its Gemini keys to the paid tier).
 ask_secret GEMINI_API_KEY "Gemini API key (aistudio.google.com/apikey, from a project without billing)"
-ask_secret UPSTASH_REDIS_REST_URL "Upstash Redis REST URL (https://...upstash.io)"
+ask_secret UPSTASH_REDIS_REST_URL "Upstash Redis REST URL (https://...upstash.io)" "https://"
 ask_secret UPSTASH_REDIS_REST_TOKEN "Upstash Redis REST token"
-ask_secret DATABASE_URL "Neon pooled connection string (postgresql://...-pooler...)"
-ask_secret LANGFUSE_PUBLIC_KEY "Langfuse public key (pk-lf-...)"
-ask_secret LANGFUSE_SECRET_KEY "Langfuse secret key (sk-lf-...)"
+ask_secret DATABASE_URL "Neon pooled connection string (postgresql://...-pooler...)" "postgresql://"
+ask_secret LANGFUSE_PUBLIC_KEY "Langfuse public key (pk-lf-...)" "pk-lf-"
+ask_secret LANGFUSE_SECRET_KEY "Langfuse secret key (sk-lf-...)" "sk-lf-"
 # Generated here and never shown: the agent service and the portfolio read their client key from Secret Manager.
 secret_exists USER_HASH_SALT || random | put_secret USER_HASH_SALT
 secret_exists GATEWAY_CLIENT_KEYS ||
